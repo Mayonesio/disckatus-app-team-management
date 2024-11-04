@@ -64,63 +64,53 @@
 
     @push('scripts')
     <script type="module">
-        // Importaciones de Firebase
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
-        import { getAuth, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
+    import { getAuth, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
 
-        const firebaseConfig = {
-            apiKey: "{{ config('services.firebase.api_key') }}",
-            authDomain: "{{ config('services.firebase.auth_domain') }}",
-            projectId: "{{ config('services.firebase.project_id') }}",
-            storageBucket: "{{ config('services.firebase.storage_bucket') }}",
-            messagingSenderId: "{{ config('services.firebase.messaging_sender_id') }}",
-            appId: "{{ config('services.firebase.app_id') }}",
-            measurementId: "{{ config('services.firebase.measurement_id') }}"
-        };
+    const firebaseConfig = {
+        apiKey: "{{ config('services.firebase.api_key') }}",
+        authDomain: "{{ config('services.firebase.auth_domain') }}",
+        projectId: "{{ config('services.firebase.project_id') }}",
+        storageBucket: "{{ config('services.firebase.storage_bucket') }}",
+        messagingSenderId: "{{ config('services.firebase.messaging_sender_id') }}",
+        appId: "{{ config('services.firebase.app_id') }}",
+        measurementId: "{{ config('services.firebase.measurement_id') }}"
+    };
 
-        console.log('Firebase Config:', firebaseConfig);
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const provider = new GoogleAuthProvider();
 
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const provider = new GoogleAuthProvider();
+    window.signInWithGoogle = async function() {
+        try {
+            const result = await signInWithPopup(auth, provider);
+            const idToken = await result.user.getIdToken();
+            
+            console.log('Token obtenido successfully');
 
-        window.signInWithGoogle = async function() {
-            try {
-                const result = await signInWithPopup(auth, provider);
-                console.log('Google sign in successful:', result);
-                
-                const idToken = await result.user.getIdToken();
-                console.log('Token obtenido successfully');
+            const response = await fetch('/auth/google/callback', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                },
+                body: JSON.stringify({ idToken })
+            });
 
-                const response = await fetch('/api/auth/google/callback', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json',
-                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
-                    },
-                    body: JSON.stringify({ idToken })
-                });
+            const data = await response.json();
+            console.log('Respuesta del servidor:', data);
 
-                if (!response.ok) {
-                    const text = await response.text();
-                    console.error('Server response:', text);
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-
-                const data = await response.json();
-                console.log('Backend response:', data);
-
-                if (data.status === 'success') {
-                    window.location.href = data.redirect;
-                } else {
-                    throw new Error(data.message || 'Error en la autenticación');
-                }
-            } catch (error) {
-                console.error('Error completo:', error);
-                alert(`Error al iniciar sesión con Google: ${error.message}`);
+            if (data.status === 'success') {
+                window.location.href = data.redirect;
+            } else {
+                throw new Error(data.message || 'Error en la autenticación');
             }
-        };
-    </script>
+        } catch (error) {
+            console.error('Error completo:', error);
+            alert('Error al iniciar sesión con Google: ' + error.message);
+        }
+    };
+</script>
     @endpush
 </x-guest-layout>
