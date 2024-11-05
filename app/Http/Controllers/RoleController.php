@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Role;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Log;
@@ -36,6 +37,30 @@ class RoleController extends Controller
         }
     }
 
+    public function check()
+    {
+        try {
+            $roles = Role::all();
+            $users = User::with('roles')->get();
+            
+            return response()->json([
+                'roles' => $roles,
+                'users' => $users->map(function($user) {
+                    return [
+                        'id' => $user->id,
+                        'name' => $user->name,
+                        'email' => $user->email,
+                        'roles' => $user->roles->pluck('name')
+                    ];
+                })
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error checking roles: ' . $e->getMessage());
+            return response()->json([
+                'error' => 'Error checking roles and users'
+            ], 500);
+        }
+    }
     public function update(Request $request, Role $role)
     {
         $request->validate([

@@ -10,183 +10,267 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB; 
+
 class FirebaseAuthController extends Controller
 {
-    public function login(Request $request)
-{
-    $request->validate([
-        'email' => ['required', 'email'],
-        'password' => ['required'],
-    ]);
+   public function login(Request $request)
+   {
+       $request->validate([
+           'email' => ['required', 'email'],
+           'password' => ['required'],
+       ]);
 
-    if (Auth::attempt($request->only('email', 'password'), $request->boolean('remember'))) {
-        $request->session()->regenerate();
-        
-        $user = Auth::user();
-        $user->load('roles');
+       try {
+           if (Auth::attempt($request->only('email', 'password'), $request->boolean('remember'))) {
+               $request->session()->regenerate();
+               
+               $user = User::with('roles')->find(Auth::id());
+               
+               Log::info('Login tradicional exitoso', [
+                   'user_id' => $user->id,
+                   'roles' => $user->roles->pluck('slug'),
+                   'roles_count' => $user->roles->count(),
+                   'highest_role' => $user->getHighestRole()?->slug
+               ]);
 
-        Log::info('Login tradicional exitoso', [
-            'user_id' => $user->id,
-            'roles' => $user->roles->pluck('slug')
-        ]);
+               return redirect($this->getRedirectPath($user));
+           }
 
-        return redirect($this->getRedirectPath($user));
-    }
+           return back()
+               ->withInput($request->only('email', 'remember'))
+               ->withErrors(['email' => 'Las credenciales proporcionadas no coinciden con nuestros registros.']);
+       } catch (\Exception $e) {
+           Log::error('Error en login tradicional:', [
+               'error' => $e->getMessage(),
+               'trace' => $e->getTraceAsString()
+           ]);
+           return back()->withErrors(['error' => 'Error al iniciar sesión. Por favor, inténtalo de nuevo.']);
+       }
+   }
 
-    return back()
-        ->withInput($request->only('email', 'remember'))
-        ->withErrors(['email' => 'Las credenciales proporcionadas no coinciden con nuestros registros.']);
-}
-    public function register(Request $request)
-    {
-        $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users',
-            'password' => 'required|string|confirmed|min:8',
-        ]);
+   public function register(Request $request)
+   {
+       $request->validate([
+           'name' => 'required|string|max:255',
+           'email' => 'required|string|email|max:255|unique:users',
+           'password' => 'required|string|confirmed|min:8',
+       ]);
 
-        $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-        ]);
+       Log::info('Iniciando registro de usuario', ['email' => $request->email]);
 
-        // Asignar rol según si es el primer usuario o no
-        if (User::count() === 1) {
-            $role = Role::firstOrCreate(
-                ['slug' => 'super-admin'],
-                ['name' => 'Super Admin', 'description' => 'Control total del sistema']
-            );
-        } else {
-            $role = Role::firstOrCreate(
-                ['slug' => 'player'],
-                ['name' => 'Player', 'description' => 'Jugador del equipo']
-            );
-        }
+       DB::beginTransaction();
+       try {
+           $user = User::create([
+               'name' => $request->name,
+               'email' => $request->email,
+               'password' => Hash::make($request->password),
+           ]);
 
-        $user->roles()->attach($role->id);
+           Log::info('Usuario creado exitosamente', ['user_id' => $user->id]);
 
-        Auth::login($user);
+           // Asignar rol según si es el primer usuario o no
+           $isFirstUser = User::count() === 1;
+           $roleSlug = $isFirstUser ? 'super-admin' : 'player';
+           
+           $role = Role::firstOrCreate(
+               ['slug' => $roleSlug],
+               [
+                   'name' => $isFirstUser ? 'Super Admin' : 'Player',
+                   'description' => $isFirstUser ? 'Control total del sistema' : 'Jugador del equipo'
+               ]
+           );
 
-        return redirect()->route('dashboard');
-    }
+           $user->roles()->attach($role->id, [
+               'created_at' => now(),
+               'updated_at' => now()
+           ]);
 
-    public function handleGoogleLogin(Request $request)
-    {
-        try {
-            Log::info('Google login attempt', ['request' => $request->all()]);
-            
-            $idToken = $request->input('idToken');
-            $verifiedToken = app('firebase.auth')->verifyIdToken($idToken);
-            
-            $uid = $verifiedToken->claims()->get('sub');
-            $email = $verifiedToken->claims()->get('email');
-            $name = $verifiedToken->claims()->get('name', '');
-            $picture = $verifiedToken->claims()->get('picture', '');
-    
-            $user = User::where('email', $email)->first();
-            
-            DB::beginTransaction();
-            try {
-                if (!$user) {
-                    $user = User::create([
-                        'name' => $name,
-                        'email' => $email,
-                        'firebase_uid' => $uid,
-                        'avatar' => $picture
-                    ]);
-    
-                    $isFirstUser = User::count() === 1;
-                    $roleSlug = $isFirstUser ? 'super-admin' : 'player';
-                    $role = Role::where('slug', $roleSlug)->first();
-                    
-                    if ($role) {
-                        $user->roles()->attach($role->id, [
-                            'created_at' => now(),
-                            'updated_at' => now()
-                        ]);
-                    }
-    
-                    Log::info('Nuevo usuario creado', [
-                        'user_id' => $user->id,
-                        'role' => $roleSlug
-                    ]);
-                } else {
-                    $user->firebase_uid = $uid;
-                    $user->avatar = $picture;
-                    $user->save();
-    
-                    if (!$user->roles()->exists()) {
-                        $role = Role::where('slug', 'player')->first();
-                        if ($role) {
-                            $user->roles()->attach($role->id, [
-                                'created_at' => now(),
-                                'updated_at' => now()
-                            ]);
-                        }
-                    }
-                }
-    
-                DB::commit();
-            } catch (\Exception $e) {
-                DB::rollback();
-                throw $e;
-            }
-    
-            Auth::login($user);
-            $user->load('roles');
-            
-            Log::info('Login exitoso', [
-                'user_id' => $user->id,
-                'roles' => $user->roles->pluck('slug'),
-                'highest_role' => $user->getHighestRole()?->slug
-            ]);
-    
-            return response()->json([
-                'status' => 'success',
-                'redirect' => $this->getRedirectPath($user)
-            ]);
-    
-        } catch (\Exception $e) {
-            Log::error('Error en autenticación Google:', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Error de autenticación con Google: ' . $e->getMessage()
-            ], 401);
-        }
-    }
+           Log::info('Rol asignado al usuario', [
+               'user_id' => $user->id,
+               'role' => $role->slug,
+               'is_first_user' => $isFirstUser
+           ]);
 
-    protected function getRedirectPath($user)
-    {
-        if (!$user->roles()->exists()) {
-            return route('dashboard');
-        }
-    
-        $highestRole = $user->getHighestRole();
-        if (!$highestRole) {
-            return route('dashboard');
-        }
-    
-        switch ($highestRole->slug) {
-            case 'super-admin':
-                return route('admin.dashboard');
-            case 'captain':
-                return route('captain.dashboard');
-            default:
-                return route('dashboard');
-        }
-    }
+           DB::commit();
 
-    public function logout(Request $request)
-    {
-        Auth::logout();
-        $request->session()->invalidate();
-        $request->session()->regenerateToken();
-        
-        return redirect('/');
-    }
+           $user->refresh();
+           $user->load('roles');
+           Auth::login($user);
+
+           return redirect()->route('dashboard');
+       } catch (\Exception $e) {
+           DB::rollback();
+           Log::error('Error en registro:', [
+               'error' => $e->getMessage(),
+               'trace' => $e->getTraceAsString()
+           ]);
+           return back()->withErrors(['error' => 'Error al crear el usuario. Por favor, inténtalo de nuevo.']);
+       }
+   }
+
+   public function handleGoogleLogin(Request $request)
+   {
+       try {
+           Log::info('Google login attempt iniciado', [
+               'request' => $request->all()
+           ]);
+           
+           $idToken = $request->input('idToken');
+           $verifiedToken = app('firebase.auth')->verifyIdToken($idToken);
+           
+           $uid = $verifiedToken->claims()->get('sub');
+           $email = $verifiedToken->claims()->get('email');
+           $name = $verifiedToken->claims()->get('name', '');
+           $picture = $verifiedToken->claims()->get('picture', '');
+
+           Log::info('Token Firebase verificado', [
+               'email' => $email,
+               'uid' => $uid
+           ]);
+
+           // Eager loading de roles desde el inicio
+           $user = User::with('roles')->where('email', $email)->first();
+           
+           DB::beginTransaction();
+           try {
+               if (!$user) {
+                   $user = User::create([
+                       'name' => $name,
+                       'email' => $email,
+                       'firebase_uid' => $uid,
+                       'avatar' => $picture
+                   ]);
+
+                   $isFirstUser = User::count() === 1;
+                   $roleSlug = $isFirstUser ? 'super-admin' : 'player';
+                   $role = Role::where('slug', $roleSlug)->firstOrFail();
+                   
+                   $user->roles()->attach($role->id, [
+                       'created_at' => now(),
+                       'updated_at' => now()
+                   ]);
+
+                   Log::info('Nuevo usuario Google creado', [
+                       'user_id' => $user->id,
+                       'role' => $roleSlug,
+                       'is_first_user' => $isFirstUser,
+                       'roles_count' => $user->roles()->count()
+                   ]);
+               } else {
+                   Log::info('Usuario Google existente', [
+                       'user_id' => $user->id,
+                       'current_roles' => $user->roles->pluck('slug')
+                   ]);
+
+                   $user->firebase_uid = $uid;
+                   $user->avatar = $picture;
+                   $user->save();
+
+                   if (!$user->roles()->exists()) {
+                       $role = Role::where('slug', 'player')->firstOrFail();
+                       $user->roles()->attach($role->id, [
+                           'created_at' => now(),
+                           'updated_at' => now()
+                       ]);
+                       Log::info('Rol player asignado a usuario existente', [
+                           'user_id' => $user->id
+                       ]);
+                   }
+               }
+
+               DB::commit();
+
+               // Recargar usuario con sus roles
+               $user->refresh();
+               $user->load('roles');
+               
+               Auth::login($user);
+
+               $redirectPath = $this->getRedirectPath($user);
+               Log::info('Login Google exitoso', [
+                   'user_id' => $user->id,
+                   'roles' => $user->roles->pluck('slug')->toArray(),
+                   'highest_role' => $user->getHighestRole()?->slug,
+                   'roles_count' => $user->roles()->count(),
+                   'auth_check' => Auth::check(),
+                   'redirect_path' => $redirectPath
+               ]);
+
+               return response()->json([
+                   'status' => 'success',
+                   'redirect' => $redirectPath,
+                   'user' => [
+                       'id' => $user->id,
+                       'name' => $user->name,
+                       'roles' => $user->roles->pluck('slug')
+                   ]
+               ]);
+
+           } catch (\Exception $e) {
+               DB::rollback();
+               Log::error('Error en transacción DB:', [
+                   'error' => $e->getMessage(),
+                   'trace' => $e->getTraceAsString()
+               ]);
+               throw $e;
+           }
+
+       } catch (\Exception $e) {
+           Log::error('Error en autenticación Google:', [
+               'error' => $e->getMessage(),
+               'trace' => $e->getTraceAsString(),
+               'email' => $email ?? 'no_email'
+           ]);
+           
+           return response()->json([
+               'status' => 'error',
+               'message' => 'Error de autenticación con Google: ' . $e->getMessage()
+           ], 401);
+       }
+   }
+
+   protected function getRedirectPath($user)
+   {
+       Log::info('Calculando ruta de redirección', [
+           'user_id' => $user->id,
+           'has_roles' => $user->roles()->exists(),
+           'roles' => $user->roles->pluck('slug')
+       ]);
+
+       if (!$user->roles()->exists()) {
+           Log::info('Usuario sin roles, redirigiendo a dashboard general');
+           return route('dashboard');
+       }
+   
+       $highestRole = $user->getHighestRole();
+       if (!$highestRole) {
+           Log::info('No se pudo determinar rol más alto, redirigiendo a dashboard general');
+           return route('dashboard');
+       }
+   
+       Log::info('Determinando ruta por rol', [
+           'highest_role' => $highestRole->slug
+       ]);
+
+       switch ($highestRole->slug) {
+           case 'super-admin':
+               return route('admin.dashboard');
+           case 'captain':
+               return route('captain.dashboard');
+           default:
+               return route('dashboard');
+       }
+   }
+
+   public function logout(Request $request)
+   {
+       $userId = Auth::id();
+       Auth::logout();
+       $request->session()->invalidate();
+       $request->session()->regenerateToken();
+       
+       Log::info('Usuario desconectado', ['user_id' => $userId]);
+       
+       return redirect('/');
+   }
 }

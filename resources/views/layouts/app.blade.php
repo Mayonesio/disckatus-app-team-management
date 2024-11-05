@@ -13,6 +13,50 @@
 
     <!-- Scripts -->
     @vite(['resources/css/app.css', 'resources/js/app.js'])
+
+    <!-- Firebase Setup -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
+        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
+
+        const firebaseConfig = {
+            apiKey: "{{ config('services.firebase.api_key') }}",
+            authDomain: "{{ config('services.firebase.auth_domain') }}",
+            projectId: "{{ config('services.firebase.project_id') }}",
+            storageBucket: "{{ config('services.firebase.storage_bucket') }}",
+            messagingSenderId: "{{ config('services.firebase.messaging_sender_id') }}",
+            appId: "{{ config('services.firebase.app_id') }}",
+            measurementId: "{{ config('services.firebase.measurement_id') }}"
+        };
+
+        // Solo inicializar Firebase si el usuario está autenticado con Google
+        if ({{ auth()->check() && auth()->user()->firebase_uid ? 'true' : 'false' }}) {
+            const app = initializeApp(firebaseConfig);
+            const auth = getAuth(app);
+
+            window.getFirebaseToken = async () => {
+                try {
+                    const user = auth.currentUser;
+                    if (user) {
+                        const token = await user.getIdToken(true);
+                        localStorage.setItem('firebase_token', token);
+                        return token;
+                    }
+                    return localStorage.getItem('firebase_token');
+                } catch (error) {
+                    console.error('Error getting Firebase token:', error);
+                    return null;
+                }
+            };
+
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    const token = await user.getIdToken(true);
+                    localStorage.setItem('firebase_token', token);
+                }
+            });
+        }
+    </script>
 </head>
 <body class="font-sans antialiased">
     <div class="min-h-screen bg-gray-100 flex">

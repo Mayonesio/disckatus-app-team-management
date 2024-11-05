@@ -13,7 +13,7 @@ class AdminController extends Controller
     {
         $totalUsers = User::count();
         $newUsers = User::whereMonth('created_at', now()->month)->count();
-        
+
         $roleStats = Role::withCount('users')
             ->get()
             ->map(function ($role) {
@@ -31,6 +31,32 @@ class AdminController extends Controller
         $users = User::with('roles')->paginate(10);
         $roles = Role::all();
         return view('admin.users', compact('users', 'roles'));
+    }
+
+    
+    // En AdminController.php añadir:
+    public function createSuperAdmin(Request $request)
+    {
+        // Este método puede manejar ambos casos (Firebase y tradicional)
+        $request->validate([
+            'email' => 'required|email|exists:users,email'
+        ]);
+    
+        try {
+            $user = User::where('email', $request->email)->firstOrFail();
+            $superAdminRole = Role::where('slug', 'super-admin')->firstOrFail();
+            
+            $user->roles()->sync([$superAdminRole->id]);
+    
+            return response()->json([
+                'success' => true,
+                'message' => 'Super Admin creado correctamente',
+                'user' => $user->load('roles')
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error creando super admin: ' . $e->getMessage());
+            return response()->json(['error' => 'Error creando super admin'], 500);
+        }
     }
 
     public function system()

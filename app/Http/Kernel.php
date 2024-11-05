@@ -6,13 +6,6 @@ use Illuminate\Foundation\Http\Kernel as HttpKernel;
 
 class Kernel extends HttpKernel
 {
-    /**
-     * The application's global HTTP middleware stack.
-     *
-     * These middleware are run during every request to your application.
-     *
-     * @var array<int, class-string|string>
-     */
     protected $middleware = [
         // \App\Http\Middleware\TrustHosts::class,
         \App\Http\Middleware\TrustProxies::class,
@@ -23,11 +16,6 @@ class Kernel extends HttpKernel
         \Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull::class,
     ];
 
-    /**
-     * The application's route middleware groups.
-     *
-     * @var array<string, array<int, class-string|string>>
-     */
     protected $middlewareGroups = [
         'web' => [
             \App\Http\Middleware\EncryptCookies::class,
@@ -46,14 +34,7 @@ class Kernel extends HttpKernel
         ],
     ];
 
-    /**
-     * The application's middleware aliases.
-     *
-     * Aliases may be used instead of class names to conveniently assign middleware to routes and groups.
-     *
-     * @var array<string, class-string|string>
-     */
-    protected $middlewareAliases = [
+    protected $middlewareAliases = [  // Cambiamos a $middlewareAliases
         'auth' => \App\Http\Middleware\Authenticate::class,
         'auth.basic' => \Illuminate\Auth\Middleware\AuthenticateWithBasicAuth::class,
         'auth.session' => \Illuminate\Session\Middleware\AuthenticateSession::class,
@@ -61,21 +42,13 @@ class Kernel extends HttpKernel
         'can' => \Illuminate\Auth\Middleware\Authorize::class,
         'guest' => \App\Http\Middleware\RedirectIfAuthenticated::class,
         'password.confirm' => \Illuminate\Auth\Middleware\RequirePassword::class,
-        'precognitive' => \Illuminate\Foundation\Http\Middleware\HandlePrecognitiveRequests::class,
         'signed' => \App\Http\Middleware\ValidateSignature::class,
         'throttle' => \Illuminate\Routing\Middleware\ThrottleRequests::class,
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
-        'firebase.verify' => \App\Http\Middleware\VerifyFirebaseToken::class,
         'role' => \App\Http\Middleware\CheckRole::class,
+        'firebase.auth' => \App\Http\Middleware\VerifyFirebaseToken::class,
     ];
 
-    /**
-     * The priority-sorted list of middleware.
-     *
-     * Forces non-global middleware to always be in the given order.
-     *
-     * @var string[]
-     */
     protected $middlewarePriority = [
         \Illuminate\Foundation\Http\Middleware\HandlePrecognitiveRequests::class,
         \Illuminate\Cookie\Middleware\EncryptCookies::class,
@@ -87,10 +60,5 @@ class Kernel extends HttpKernel
         \Illuminate\Contracts\Session\Middleware\AuthenticatesSessions::class,
         \Illuminate\Routing\Middleware\SubstituteBindings::class,
         \Illuminate\Auth\Middleware\Authorize::class,
-    ];
-    protected $routeMiddleware = [
-        // ... otros middlewares
-        'role' => \App\Http\Middleware\CheckRole::class,
-        'firebase.auth' => \App\Http\Middleware\VerifyFirebaseToken::class,
     ];
 }

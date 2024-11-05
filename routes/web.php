@@ -8,6 +8,7 @@ use App\Http\Controllers\AdminController;
 use App\Http\Controllers\CaptainController;
 use App\Http\Controllers\RoleController;
 use Illuminate\Support\Facades\Auth;
+
 // Rutas públicas y de autenticación
 Route::middleware('guest')->group(function () {
     // Redirección principal
@@ -48,6 +49,17 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/logout', [FirebaseAuthController::class, 'logout'])
         ->name('logout');
 
+    // NUEVA RUTA - Solo autenticación requerida para la creación inicial de super-admin
+    Route::post('/admin/create-super', [AdminController::class, 'createSuperAdmin'])
+        ->middleware('firebase.simple')
+        ->name('admin.create-super');
+
+    Route::post('/admin/create-super/traditional', [AdminController::class, 'createSuperAdminTraditional'])
+        ->middleware('auth', 'firebase.auth')
+        ->name('admin.create-super.traditional');
+
+    Route::get('/check-roles', [RoleController::class, 'check'])
+        ->name('roles.check');
     // Dashboard principal - Redirecciona según rol
     Route::get('/dashboard', function () {
         $user = auth()->user();
@@ -79,22 +91,21 @@ Route::middleware(['auth'])->group(function () {
     });
 
     // Rutas de administrador
-    Route::middleware(['role:super-admin'])->prefix('admin')->group(function () {
-        // Dashboard de admin
+    Route::middleware(['auth', 'role:super-admin'])->prefix('admin')->group(function () {
+        Route::get('/roles/check', [RoleController::class, 'check'])
+            ->name('roles.check');
+    
         Route::get('/dashboard', [AdminController::class, 'dashboard'])
             ->name('admin.dashboard');
-
-        // Gestión de roles
+    
         Route::get('/roles', [RoleController::class, 'index'])
             ->name('admin.roles.index');
         Route::post('/roles', [RoleController::class, 'store'])
             ->name('admin.roles.store');
-
-        // Configuración del sistema
+    
         Route::get('/system', [AdminController::class, 'system'])
             ->name('admin.system');
-
-        // Gestión de usuarios
+    
         Route::get('/users', [AdminController::class, 'users'])
             ->name('admin.users');
         Route::patch('/users/{user}/role', [AdminController::class, 'updateUserRole'])
@@ -102,7 +113,7 @@ Route::middleware(['auth'])->group(function () {
     });
 
     // Rutas de capitán
-    Route::middleware(['role:captain'])->prefix('captain')->group(function () {
+    Route::middleware(['auth', 'role:captain'])->prefix('captain')->group(function () {
         Route::get('/dashboard', [CaptainController::class, 'dashboard'])
             ->name('captain.dashboard');
         Route::get('/team', [CaptainController::class, 'team'])
@@ -112,7 +123,7 @@ Route::middleware(['auth'])->group(function () {
     });
 
     // Rutas de gestión de miembros - Accesible para admin y capitán
-    Route::middleware(['role:super-admin,captain'])->prefix('members')->group(function () {
+    Route::middleware(['auth', 'role:super-admin,captain'])->prefix('members')->group(function () {
         Route::get('/', [PlayerController::class, 'index'])
             ->name('members.index');
         Route::get('/{user}', [PlayerController::class, 'show'])
@@ -122,4 +133,16 @@ Route::middleware(['auth'])->group(function () {
         Route::put('/{user}', [PlayerController::class, 'update'])
             ->name('members.update');
     });
+
+    // Rutas de creación de super admin
+    Route::post('/admin/create-super', [AdminController::class, 'createSuperAdmin'])
+        ->middleware('firebase.simple')
+        ->name('admin.create-super');
+
+    Route::post('/admin/create-super/traditional', [AdminController::class, 'createSuperAdminTraditional'])
+        ->middleware(['auth', 'firebase.auth'])
+        ->name('admin.create-super.traditional');
+
+    Route::get('/check-roles', [RoleController::class, 'check'])
+        ->name('roles.check');
 });
